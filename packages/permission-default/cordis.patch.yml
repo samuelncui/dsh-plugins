@@ -1,0 +1,3 @@
+- insert:
+    - id: permission-default
+      name: '@samuelncui/dsh-permission-default'
