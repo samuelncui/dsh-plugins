@@ -1,6 +1,6 @@
 {
   "name": "@samuelncui/dsh-tool-policy",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Deterministic allow/deny rules for DSH tool calls, evaluated before any model-based review.",
   "type": "module",
   "main": "lib/index.js",

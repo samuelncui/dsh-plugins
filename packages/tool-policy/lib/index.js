@@ -24,6 +24,7 @@ export const Config = z.object({
       z.object({
         action: z.union(['allow', 'deny']).default('deny'),
         tools: z.array(z.string()).default([]),
+        commands: z.array(z.string()).default([]),
         commandPrefixes: z.array(z.string()).default([]),
         commandPatterns: z.array(z.string()).default([]),
         reason: z.string().default(''),
@@ -71,11 +72,46 @@ function commandOf(exec) {
 }
 
 /**
+ * Split a shell command line into its command segments.
+ *
+ * The split is on `;`, `&&`, `||`, `|`, and newlines. This is a heuristic, not a
+ * shell parser: an operator inside quotes is still treated as a separator.
+ *
+ * @param command - the shell command text.
+ * @returns trimmed, non-empty segments.
+ */
+function segments(command) {
+  return command
+    .split(/&&|\|\||[;|\n]/)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment !== '')
+}
+
+/**
+ * First executable token of one command segment.
+ *
+ * Leading variable assignments are skipped and a path is reduced to its
+ * basename, so `FOO=1 /usr/local/bin/bytedcli ...` heads as `bytedcli`.
+ *
+ * @param segment - one command segment.
+ * @returns the executable name, or `undefined` when the segment has none.
+ */
+function head(segment) {
+  const tokens = segment.split(/\s+/).filter(Boolean)
+  let index = 0
+  while (index < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[index])) index += 1
+  if (index >= tokens.length) return undefined
+  const token = tokens[index]
+  return token.includes('/') ? token.slice(token.lastIndexOf('/') + 1) : token
+}
+
+/**
  * Whether one compiled rule covers this call.
  *
  * A rule with no `tools` entry matches every call. Command matchers only apply
  * to calls that carry a string `command`, so a shell-only rule never matches a
- * file tool by accident.
+ * file tool by accident. `commands` compares the head of each command segment,
+ * which is what catches a CLI reached through `cd X &&`, `;`, or a pipe.
  *
  * @param rule - the compiled rule.
  * @param exec - the pending tool execution.
@@ -83,10 +119,11 @@ function commandOf(exec) {
  */
 function covers(rule, exec) {
   if (rule.tools.length > 0 && !rule.tools.includes(exec.name)) return false
-  const needsCommand = rule.commandPrefixes.length > 0 || rule.patterns.length > 0
+  const needsCommand = rule.commands.length > 0 || rule.commandPrefixes.length > 0 || rule.patterns.length > 0
   if (!needsCommand) return true
   const command = commandOf(exec)
   if (command === undefined) return false
+  if (rule.commands.length > 0 && !segments(command).some((segment) => rule.commands.includes(head(segment)))) return false
   if (rule.commandPrefixes.length > 0 && !rule.commandPrefixes.some((prefix) => command.startsWith(prefix))) return false
   if (rule.patterns.length > 0 && !rule.patterns.some((pattern) => pattern.test(command))) return false
   return true
